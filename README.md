@@ -4,6 +4,13 @@ A two-player tap race on one phone. **Kohli (red) vs Rohit (blue), first to 1000
 
 *By Manohar Papasani*
 
+## Play it
+
+- **On any phone or laptop:** https://technaom.github.io/tap-duel/
+- **Android app:** [download tap-duel.apk](https://github.com/TechNaom/tap-duel/releases/latest/download/tap-duel.apk). Open it on your phone and allow "install unknown apps" when asked.
+
+Both are rebuilt automatically on every push to `main` (see [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)).
+
 ## Rules
 
 - **Tap** your half of the screen: **+1**

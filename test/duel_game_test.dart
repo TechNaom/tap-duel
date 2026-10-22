@@ -82,4 +82,46 @@ void main() {
       expect(g.danger(Player.kohli), 1);
     });
   });
+
+  group('milestones', () {
+    test('fire once per quarter mark, not again after dropping back', () {
+      final g = DuelGame(target: 8); // quarters at 2, 4, 6
+      final hits = <int>[];
+      var t = 0;
+      void single() {
+        final m = g.tap(Player.kohli, ms(t += 300)).milestone;
+        if (m != null) hits.add(m);
+      }
+
+      single();
+      single(); // 2
+      g.tap(Player.kohli, ms(t += 300)); // 3
+      g.tap(Player.kohli, ms(t += 100)); // double -> 1
+      single(); // 2 again: no repeat
+      single();
+      single(); // 4
+      expect(hits, [2, 4]);
+    });
+  });
+
+  group('on fire', () {
+    test('fast safe taps build a streak, a double tap resets it', () {
+      final g = DuelGame(fireStreak: 5);
+      for (var i = 0; i < 5; i++) {
+        g.tap(Player.rohit, ms(i * 300));
+      }
+      expect(g.onFire(Player.rohit), isTrue);
+      g.tap(Player.rohit, ms(1300)); // double
+      expect(g.streak(Player.rohit), 0);
+      expect(g.onFire(Player.rohit), isFalse);
+    });
+
+    test('a slow tap restarts the streak at 1', () {
+      final g = DuelGame()
+        ..tap(Player.kohli, ms(0))
+        ..tap(Player.kohli, ms(300))
+        ..tap(Player.kohli, ms(2000));
+      expect(g.streak(Player.kohli), 1);
+    });
+  });
 }
