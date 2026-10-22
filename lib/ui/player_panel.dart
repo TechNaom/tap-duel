@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:confetti/confetti.dart';
 import 'package:flutter/services.dart';
 
 import '../game/duel_game.dart';
 import 'player_style.dart';
+import 'sound_bank.dart';
 
 /// One half of the screen: photo, score, progress and tap effects.
 class PlayerPanel extends StatefulWidget {
@@ -15,6 +17,7 @@ class PlayerPanel extends StatefulWidget {
     required this.score,
     required this.target,
     required this.danger,
+    required this.onFire,
     required this.onTap,
   });
 
@@ -22,6 +25,7 @@ class PlayerPanel extends StatefulWidget {
   final int score;
   final int target;
   final double danger;
+  final bool onFire;
   final TapOutcome Function(Duration at) onTap;
 
   @override
@@ -39,6 +43,11 @@ class _FloatingLabel {
 class _PlayerPanelState extends State<PlayerPanel> with TickerProviderStateMixin {
   late final _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 140));
   late final _flash = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
+  late final _fireGlow = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))
+    ..repeat(reverse: true);
+  final _burst = ConfettiController(duration: const Duration(milliseconds: 400));
+  int? _milestone;
+  var _milestoneId = 0;
   final _labels = <_FloatingLabel>[];
   final _random = Random();
   var _nextId = 0;
@@ -49,6 +58,8 @@ class _PlayerPanelState extends State<PlayerPanel> with TickerProviderStateMixin
   void dispose() {
     _pulse.dispose();
     _flash.dispose();
+    _fireGlow.dispose();
+    _burst.dispose();
     _coolDown?.cancel();
     super.dispose();
   }
@@ -57,12 +68,24 @@ class _PlayerPanelState extends State<PlayerPanel> with TickerProviderStateMixin
     final outcome = widget.onTap(e.timeStamp);
     if (outcome.delta == 0 && !outcome.isDoubleTap) return;
 
+    final sounds = SoundBank.instance;
     if (outcome.isDoubleTap) {
       HapticFeedback.heavyImpact();
+      sounds.play('minus');
       _flash.forward(from: 0);
     } else {
       HapticFeedback.lightImpact();
+      sounds.play(widget.style == PlayerStyle.kohli ? 'tap_red' : 'tap_blue', volume: 0.6);
       _pulse.forward(from: 0).then((_) => _pulse.reverse());
+    }
+    if (outcome.milestone != null) {
+      HapticFeedback.mediumImpact();
+      sounds.play('milestone');
+      _burst.play();
+      setState(() {
+        _milestone = outcome.milestone;
+        _milestoneId++;
+      });
     }
 
     setState(() {
@@ -84,6 +107,7 @@ class _PlayerPanelState extends State<PlayerPanel> with TickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     final s = widget.style;
+    final onFire = _hot && widget.onFire;
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: _handleDown,
@@ -111,10 +135,12 @@ class _PlayerPanelState extends State<PlayerPanel> with TickerProviderStateMixin
                           ScaleTransition(
                             scale: Tween(begin: 1.0, end: 1.08)
                                 .animate(CurvedAnimation(parent: _pulse, curve: Curves.easeOut)),
-                            child: _Photo(style: s, size: photoSize),
+                            child: _Photo(style: s, size: photoSize, onFire: onFire),
                           ),
                           const SizedBox(width: 20),
-                          Expanded(child: _ScoreBlock(style: s, score: widget.score)),
+                          Expanded(
+                            child: _ScoreBlock(style: s, score: widget.score, onFire: onFire),
+                          ),
                         ],
                       ),
                     ),
@@ -122,6 +148,26 @@ class _PlayerPanelState extends State<PlayerPanel> with TickerProviderStateMixin
                     const SizedBox(height: 10),
                     _RhythmMeter(danger: _hot ? widget.danger : 0),
                   ],
+                ),
+              ),
+              if (onFire) _FireBorder(glow: _fireGlow),
+              if (_milestone != null)
+                _MilestoneBanner(
+                  key: ValueKey(_milestoneId),
+                  value: _milestone!,
+                  style: s,
+                  onDone: () => setState(() => _milestone = null),
+                ),
+              Align(
+                alignment: Alignment.center,
+                child: ConfettiWidget(
+                  confettiController: _burst,
+                  blastDirectionality: BlastDirectionality.explosive,
+                  numberOfParticles: 25,
+                  maxBlastForce: 30,
+                  minBlastForce: 10,
+                  gravity: 0.3,
+                  colors: [s.accent, Colors.white, s.primary],
                 ),
               ),
               for (final label in _labels)
@@ -191,20 +237,27 @@ class _JerseyWatermark extends StatelessWidget {
 }
 
 class _Photo extends StatelessWidget {
-  const _Photo({required this.style, required this.size});
+  const _Photo({required this.style, required this.size, required this.onFire});
   final PlayerStyle style;
   final double size;
+  final bool onFire;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    const fire = Color(0xFFFF8A00);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: style.accent, width: 4),
+        border: Border.all(color: onFire ? fire : style.accent, width: onFire ? 6 : 4),
         boxShadow: [
-          BoxShadow(color: style.primary.withValues(alpha: 0.8), blurRadius: 30, spreadRadius: 2),
+          BoxShadow(
+            color: onFire ? fire : style.primary.withValues(alpha: 0.8),
+            blurRadius: onFire ? 50 : 30,
+            spreadRadius: onFire ? 8 : 2,
+          ),
         ],
       ),
       child: ClipOval(
@@ -232,9 +285,10 @@ class _Photo extends StatelessWidget {
 }
 
 class _ScoreBlock extends StatelessWidget {
-  const _ScoreBlock({required this.style, required this.score});
+  const _ScoreBlock({required this.style, required this.score, required this.onFire});
   final PlayerStyle style;
   final int score;
+  final bool onFire;
 
   @override
   Widget build(BuildContext context) {
@@ -263,6 +317,19 @@ class _ScoreBlock extends StatelessWidget {
               color: Colors.white,
               fontFeatures: [FontFeature.tabularFigures()],
               shadows: [Shadow(color: Colors.black54, blurRadius: 12, offset: Offset(0, 4))],
+            ),
+          ),
+        ),
+        AnimatedOpacity(
+          opacity: onFire ? 1 : 0,
+          duration: const Duration(milliseconds: 200),
+          child: const Text(
+            '🔥 ON FIRE',
+            style: TextStyle(
+              fontSize: 16,
+              letterSpacing: 2,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFFFFB300),
             ),
           ),
         ),
@@ -386,6 +453,67 @@ class _FloatingText extends StatelessWidget {
             fontWeight: FontWeight.w900,
             color: label.color,
             shadows: const [Shadow(color: Colors.black87, blurRadius: 8)],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FireBorder extends StatelessWidget {
+  const _FireBorder({required this.glow});
+  final Animation<double> glow;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: glow,
+        builder: (context, _) => DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: Color.lerp(const Color(0xFFFF5500), const Color(0xFFFFC400), glow.value)!,
+              width: 4 + glow.value * 3,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Big "250!" that pops in and fades out when a quarter mark is reached.
+class _MilestoneBanner extends StatelessWidget {
+  const _MilestoneBanner({super.key, required this.value, required this.style, required this.onDone});
+  final int value;
+  final PlayerStyle style;
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 1200),
+        onEnd: onDone,
+        builder: (context, t, child) {
+          final scale = t < 0.25 ? Curves.easeOutBack.transform(t / 0.25) : 1.0;
+          final opacity = t < 0.7 ? 1.0 : 1 - (t - 0.7) / 0.3;
+          return Center(
+            child: Opacity(opacity: opacity, child: Transform.scale(scale: scale * 1.2, child: child)),
+          );
+        },
+        child: Text(
+          '$value!',
+          style: TextStyle(
+            fontSize: 96,
+            fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
+            color: style.accent,
+            shadows: [
+              Shadow(color: style.deep, offset: const Offset(4, 4)),
+              const Shadow(color: Colors.black, blurRadius: 24),
+            ],
           ),
         ),
       ),
